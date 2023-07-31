@@ -6,7 +6,6 @@ from odoo.tools import float_compare
 
 
 class PurchaseOrder(models.Model):
-
     _inherit = "purchase.order"
 
     account_payment_ids = fields.One2many(
@@ -64,7 +63,14 @@ class PurchaseOrder(models.Model):
             advance_amount = 0.0
             for line in mls:
                 line_currency = line.currency_id or line.company_id.currency_id
-                line_amount = line.amount_currency if line.currency_id else line.balance
+                # Exclude reconciled pre-payments amount because once reconciled
+                # the pre-payment will reduce bill residual amount like any
+                # other payment.
+                line_amount = (
+                    line.amount_residual_currency
+                    if line.currency_id
+                    else line.amount_residual
+                )
                 if line_currency != order.currency_id:
                     advance_amount += line.currency_id._convert(
                         line_amount,
@@ -75,12 +81,14 @@ class PurchaseOrder(models.Model):
                 else:
                     advance_amount += line_amount
             # Consider payments in related invoices.
-            invoice_not_paid_amount = 0.0
+            invoice_paid_amount = 0.0
             for inv in order.invoice_ids:
-                invoice_not_paid_amount += inv.amount_total - inv.amount_residual
-            amount_residual = (
-                order.amount_total - advance_amount - invoice_not_paid_amount
-            )
+                # use the reconciled payment amounts instead of the invoice
+                # amount_residual that also includes reconciled credit notes.
+                for payment in inv._get_reconciled_invoices_partials():
+                    if payment[2].journal_id.type != "purchase":
+                        invoice_paid_amount += payment[1]
+            amount_residual = order.amount_total - advance_amount - invoice_paid_amount
             payment_state = "not_paid"
             if mls or order.invoice_ids:
                 has_due_amount = float_compare(
