@@ -85,9 +85,20 @@ class PurchaseOrder(models.Model):
             for inv in order.invoice_ids:
                 # use the reconciled payment amounts instead of the invoice
                 # amount_residual that also includes reconciled credit notes.
+                
+
                 for payment in inv._get_reconciled_invoices_partials():
-                    if payment[2].journal_id.type != "purchase":
-                        invoice_paid_amount += payment[1]
+                    order_currency = order.currency_id
+                    payment_move_id = payment[2]
+                    if payment[2].journal_id.type != "purchase" and order_currency == payment_move_id.currency_id:
+                        invoice_paid_amount += payment_move_id.amount_currency
+                    else:
+                        payment_converted = payment_move_id.currency_id._convert(payment[1],
+                                                                                order_currency,
+                                                                                payment_move_id.company_id,
+                                                                                payment_move_id.date,
+                                                                                )
+                        invoice_paid_amount += payment_converted
             amount_residual = order.amount_total - advance_amount - invoice_paid_amount
             payment_state = "not_paid"
             if mls or order.invoice_ids:
